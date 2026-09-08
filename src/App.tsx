@@ -1,4 +1,4 @@
-import { BrowserRouter, Link, Navigate, Outlet, Route, Routes } from 'react-router-dom';
+import { HashRouter, Link, Navigate, Outlet, Route, Routes } from 'react-router-dom';
 import { useSettings } from './hooks/useSettings';
 import { SessionActivityProvider, useSessionActivity } from './context/SessionActivityContext';
 import SetupPage from './routes/SetupPage';
@@ -46,7 +46,7 @@ function RootRedirect() {
 export default function App() {
   return (
     <SessionActivityProvider>
-      <BrowserRouter>
+      <HashRouter>
         <Routes>
           <Route element={<Layout />}>
             <Route path="/" element={<RootRedirect />} />
@@ -55,7 +55,7 @@ export default function App() {
             <Route path="/review/:sessionId" element={<ReviewPage />} />
           </Route>
         </Routes>
-      </BrowserRouter>
+      </HashRouter>
     </SessionActivityProvider>
   );
 }
