@@ -4,22 +4,15 @@ interface TimelineBarProps {
   rowLabel: string;
   segments: TimelineSegment[];
   durationMs: number;
-  scrubberPercent: number | null;
-  onSeek?: (fraction: number) => void;
 }
 
-export default function TimelineBar({ rowLabel, segments, durationMs, scrubberPercent, onSeek }: TimelineBarProps) {
-  function handleClick(e: React.MouseEvent<HTMLDivElement>) {
-    if (!onSeek) return;
-    const rect = e.currentTarget.getBoundingClientRect();
-    const fraction = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
-    onSeek(fraction);
-  }
-
+// Read-only colored bar. Only used for sessions recorded before the
+// confidence slider, to show their voice-button "Felt" timeline.
+export default function TimelineBar({ rowLabel, segments, durationMs }: TimelineBarProps) {
   return (
     <div className="timeline-row">
       <span className="timeline-row-label">{rowLabel}</span>
-      <div className="timeline-track" onClick={onSeek ? handleClick : undefined}>
+      <div className="timeline-track">
         {segments.map((seg, i) => (
           <div
             key={i}
@@ -30,7 +23,6 @@ export default function TimelineBar({ rowLabel, segments, durationMs, scrubberPe
             }}
           />
         ))}
-        {scrubberPercent !== null && <div className="timeline-scrubber" style={{ left: `${scrubberPercent}%` }} />}
       </div>
     </div>
   );

@@ -151,7 +151,7 @@ export default function SetupPage() {
               : `${sessionCount} session${sessionCount === 1 ? '' : 's'} recorded on this device.`}
           </p>
           <p className="subtitle">
-            Downloads a single file with full session data (timings, presses, journal notes, CPPS voice scores), a
+            Downloads a single file with full session data (timings, ratings, answers), a
             spreadsheet-ready summary, and the session recordings.
           </p>
           {exportError && (

@@ -1,12 +1,19 @@
 import { useEffect, useRef, useState } from 'react';
-import { Navigate, useNavigate } from 'react-router-dom';
-import { listSessions, saveAudio, saveSession } from '../db/db';
-import type { Press, PracticeSession, VoiceRole } from '../db/types';
+import { Link, Navigate, useNavigate } from 'react-router-dom';
+import { countSessionsToday, saveAudio, saveSession } from '../db/db';
+import type { PracticeSession, Rating } from '../db/types';
 import { useSettings } from '../hooks/useSettings';
 import { useSessionActivity } from '../context/SessionActivityContext';
 import { pickPrompt } from '../practice/prompts';
-import { SESSION_DURATION_MS, SESSION_INTERVALS, formatClock, getCurrentIntervalVoice } from '../practice/protocol';
-import { analyzeSessionAudio } from '../analysis/cpps';
+import {
+  DAILY_GOAL,
+  SESSION_DURATION_MS,
+  SESSION_INTERVALS,
+  getCurrentIntervalIndex,
+  getCurrentIntervalVoice,
+} from '../practice/protocol';
+import ConfidenceSlider from '../practice/ConfidenceSlider';
+import { ThumbsDown, ThumbsUp } from '../practice/ThumbIcons';
 
 type Phase = 'ready' | 'recording' | 'finalizing';
 
@@ -18,25 +25,21 @@ export default function PracticePage() {
   const [phase, setPhase] = useState<Phase>('ready');
   const [prompt] = useState(() => pickPrompt());
   const [elapsedMs, setElapsedMs] = useState(0);
-  const [presses, setPresses] = useState<Press[]>([]);
   const [micError, setMicError] = useState<string | null>(null);
   const [todayCount, setTodayCount] = useState<number | null>(null);
+  const [sessionNumber, setSessionNumber] = useState(1);
 
   const sessionIdRef = useRef('');
   const startTimestampRef = useRef(0);
   const streamRef = useRef<MediaStream | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
-  const pressesRef = useRef<Press[]>([]);
+  const ratingsRef = useRef<Rating[]>([]);
   const finalizingRef = useRef(false);
 
   useEffect(() => {
     if (phase !== 'ready') return;
-    const startOfToday = new Date();
-    startOfToday.setHours(0, 0, 0, 0);
-    listSessions().then((sessions) => {
-      setTodayCount(sessions.filter((s) => s.startedAt >= startOfToday.getTime()).length);
-    });
+    countSessionsToday().then(setTodayCount);
   }, [phase]);
 
   useEffect(() => {
@@ -90,24 +93,28 @@ export default function PracticePage() {
     recorderRef.current = recorder;
     recorder.start();
 
+    // Re-counted at start (not reused from the ready screen) so a page left
+    // open across midnight still numbers the session correctly.
+    setSessionNumber((await countSessionsToday()) + 1);
+
     sessionIdRef.current = crypto.randomUUID();
     startTimestampRef.current = Date.now();
     finalizingRef.current = false;
-    pressesRef.current = [];
-    setPresses([]);
+    ratingsRef.current = [];
     setElapsedMs(0);
     setActive(true);
     setPhase('recording');
   }
 
-  function handlePress(voice: VoiceRole) {
+  // One rating per practice period: the slider locks after the first release,
+  // and this guard keeps the record to a single entry per period as well.
+  function handleRate(value: number) {
     if (phase !== 'recording') return;
     const tMs = Date.now() - startTimestampRef.current;
-    setPresses((prev) => {
-      const next = [...prev, { tMs, voice }];
-      pressesRef.current = next;
-      return next;
-    });
+    const intervalIndex = getCurrentIntervalIndex(tMs);
+    const alreadyRated = ratingsRef.current.some((r) => getCurrentIntervalIndex(r.tMs) === intervalIndex);
+    if (alreadyRated) return;
+    ratingsRef.current.push({ tMs, voice: getCurrentIntervalVoice(tMs), value });
   }
 
   function handleEndEarly() {
@@ -142,26 +149,15 @@ export default function PracticePage() {
       inefficientLabel: settings.inefficientLabel,
       prompt,
       intervals: SESSION_INTERVALS,
-      presses: pressesRef.current,
-      journal: {},
+      presses: [],
+      ratings: ratingsRef.current,
     };
 
     await saveSession(session);
     await saveAudio(session.id, audioBlob);
 
-    // Best-effort: analysis must never risk the core recording/press data,
-    // which is already durably saved above.
-    try {
-      const voiceAnalysis = await analyzeSessionAudio(audioBlob, SESSION_INTERVALS);
-      if (voiceAnalysis) {
-        await saveSession({ ...session, voiceAnalysis });
-      }
-    } catch (err) {
-      console.error('Voice analysis failed', err);
-    }
-
     setActive(false);
-    navigate(`/review/${session.id}`);
+    navigate(`/awareness/${session.id}`);
   }
 
   if (loading) {
@@ -187,16 +183,20 @@ export default function PracticePage() {
         <div className="card wide">
           <h1>Practice session</h1>
           <p className="subtitle">
-            Session {(todayCount ?? 0) + 1} today · daily goal is 7, more is fine
+            Session {(todayCount ?? 0) + 1} today · daily goal is {DAILY_GOAL}, more is fine
           </p>
           <div className="prompt-preview">
             <span className="prompt-preview-label">Today's prompt</span>
             <p className="prompt-text">{prompt}</p>
           </div>
           <p className="subtitle">
-            You'll speak continuously for 2.5 minutes, switching between{' '}
-            <strong>{settings.targetLabel}</strong> and <strong>{settings.inefficientLabel}</strong> as prompted.
-            Tap whichever voice you feel you're producing, in the moment.
+            Speak continuously for 2.5 minutes, switching between <strong>{settings.targetLabel}</strong> and{' '}
+            <strong>{settings.inefficientLabel}</strong> as prompted.
+          </p>
+          <p className="subtitle">
+            As you talk, use the slider button to select your confidence level in achieving your{' '}
+            <strong>{settings.targetLabel}</strong> and <strong>{settings.inefficientLabel}</strong>. Only tell us how
+            confident you are WHEN you reach your intended voice.
           </p>
           {micError && (
             <p className="form-error" role="alert">
@@ -206,58 +206,62 @@ export default function PracticePage() {
           <button type="button" onClick={handleStart}>
             Start session
           </button>
+          {(todayCount ?? 0) >= DAILY_GOAL && (
+            <Link to="/daily" className="link-button back-link daily-link">
+              See today's Daily Progress Review
+            </Link>
+          )}
         </div>
       </div>
     );
   }
 
   // phase === 'recording'
-  const currentTargetVoice = getCurrentIntervalVoice(elapsedMs);
-  const lastFeltVoice = presses.length ? presses[presses.length - 1].voice : null;
-  const remainingMs = Math.max(0, SESSION_DURATION_MS - elapsedMs);
+  const currentVoice = getCurrentIntervalVoice(elapsedMs);
+  const currentIntervalIndex = getCurrentIntervalIndex(elapsedMs);
+  const currentVoiceLabel = currentVoice === 'target' ? settings.targetLabel : settings.inefficientLabel;
 
   return (
     <div className="page">
       <div className="card wide">
-        <div className={`cue-banner voice-${currentTargetVoice}`}>
-          <span className="cue-label">Aim for</span>
-          <span className="cue-voice">
-            {currentTargetVoice === 'target' ? settings.targetLabel : settings.inefficientLabel}
-          </span>
-        </div>
+        <h1>
+          Practice Session {sessionNumber}/{DAILY_GOAL}
+        </h1>
 
-        <div className="progress-track">
-          {SESSION_INTERVALS.map((iv, i) => (
-            <div
-              key={i}
-              className={`progress-segment voice-${iv.voice}`}
-              style={{ width: `${((iv.endMs - iv.startMs) / SESSION_DURATION_MS) * 100}%` }}
-            />
-          ))}
-          <div
-            className="progress-marker"
+        <div className="progress-wrap">
+          <div className="progress-track">
+            {SESSION_INTERVALS.map((iv, i) => (
+              <div
+                key={i}
+                className={`progress-segment voice-${iv.voice}`}
+                style={{ width: `${((iv.endMs - iv.startMs) / SESSION_DURATION_MS) * 100}%` }}
+              />
+            ))}
+          </div>
+          <svg
+            className="progress-arrow"
+            viewBox="0 0 24 44"
+            aria-hidden="true"
             style={{ left: `${Math.min(100, (elapsedMs / SESSION_DURATION_MS) * 100)}%` }}
-          />
+          >
+            <polygon points="2,2 12,2 22,22 12,42 2,42 12,22" />
+          </svg>
         </div>
-        <p className="timer-text">{formatClock(remainingMs)} remaining</p>
 
         <p className="prompt-text">{prompt}</p>
 
-        <div className="felt-buttons">
-          <button
-            type="button"
-            className={`felt-button voice-target${lastFeltVoice === 'target' ? ' active' : ''}`}
-            onClick={() => handlePress('target')}
-          >
-            {settings.targetLabel}
-          </button>
-          <button
-            type="button"
-            className={`felt-button voice-inefficient${lastFeltVoice === 'inefficient' ? ' active' : ''}`}
-            onClick={() => handlePress('inefficient')}
-          >
-            {settings.inefficientLabel}
-          </button>
+        <div className={`rating-panel voice-${currentVoice}`}>
+          <span className="rating-voice">{currentVoiceLabel}</span>
+          <p className="rating-question">How confident are you that you are in {currentVoiceLabel}?</p>
+          <div className="rating-scale">
+            <ThumbsDown />
+            <ConfidenceSlider
+              key={currentIntervalIndex}
+              ariaLabel={`Confidence that you are in ${currentVoiceLabel}`}
+              onCommit={handleRate}
+            />
+            <ThumbsUp />
+          </div>
         </div>
 
         <button type="button" className="link-button" onClick={handleEndEarly}>

@@ -6,12 +6,18 @@ export const SESSION_INTERVALS: SessionInterval[] = [
   { voice: 'target', startMs: 90_000, endMs: 150_000 },
 ];
 
+export const DAILY_GOAL = 7;
+
 export const SESSION_DURATION_MS = SESSION_INTERVALS[SESSION_INTERVALS.length - 1].endMs;
 
-export function getCurrentIntervalVoice(elapsedMs: number): VoiceRole {
+export function getCurrentIntervalIndex(elapsedMs: number): number {
   const clamped = Math.min(elapsedMs, SESSION_DURATION_MS - 1);
-  const interval = SESSION_INTERVALS.find((iv) => clamped >= iv.startMs && clamped < iv.endMs);
-  return interval?.voice ?? SESSION_INTERVALS[SESSION_INTERVALS.length - 1].voice;
+  const index = SESSION_INTERVALS.findIndex((iv) => clamped >= iv.startMs && clamped < iv.endMs);
+  return index === -1 ? SESSION_INTERVALS.length - 1 : index;
+}
+
+export function getCurrentIntervalVoice(elapsedMs: number): VoiceRole {
+  return SESSION_INTERVALS[getCurrentIntervalIndex(elapsedMs)].voice;
 }
 
 export function formatClock(ms: number): string {

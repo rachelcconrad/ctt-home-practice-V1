@@ -1,47 +1,24 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, Navigate, useParams } from 'react-router-dom';
-import { getAudio, getSession, saveSession } from '../db/db';
+import { countSessionsToday, getSession } from '../db/db';
 import type { PracticeSession } from '../db/types';
 import { useSettings } from '../hooks/useSettings';
-import { computeFeltSegments, type TimelineSegment } from '../review/timeline';
-import { formatSecondsMetric, timeToFirstTarget, timeToReturnAfterInefficient } from '../review/metrics';
+import { computeFeltSegments } from '../review/timeline';
+import { DAILY_GOAL } from '../practice/protocol';
+import { summarizeRatingsByInterval } from '../review/metrics';
 import TimelineBar from '../review/TimelineBar';
 
 export default function ReviewPage() {
   const { settings, loading: settingsLoading } = useSettings();
   const { sessionId } = useParams();
   const [session, setSession] = useState<PracticeSession | null | undefined>(undefined);
-  const [audioUrl, setAudioUrl] = useState<string | null>(null);
-  const [currentTimeMs, setCurrentTimeMs] = useState(0);
-  const audioRef = useRef<HTMLAudioElement>(null);
 
-  const [targetFeel, setTargetFeel] = useState('');
-  const [inefficientFeel, setInefficientFeel] = useState('');
-  const [journalSaved, setJournalSaved] = useState(false);
+  const [todayCount, setTodayCount] = useState(0);
 
   useEffect(() => {
     if (!sessionId) return;
-    getSession(sessionId).then((s) => {
-      setSession(s ?? null);
-      if (s) {
-        setTargetFeel(s.journal.target ?? '');
-        setInefficientFeel(s.journal.inefficient ?? '');
-      }
-    });
-  }, [sessionId]);
-
-  useEffect(() => {
-    if (!sessionId) return;
-    let url: string | null = null;
-    getAudio(sessionId).then((blob) => {
-      if (blob) {
-        url = URL.createObjectURL(blob);
-        setAudioUrl(url);
-      }
-    });
-    return () => {
-      if (url) URL.revokeObjectURL(url);
-    };
+    getSession(sessionId).then((s) => setSession(s ?? null));
+    countSessionsToday().then(setTodayCount);
   }, [sessionId]);
 
   if (settingsLoading || session === undefined) {
@@ -65,35 +42,12 @@ export default function ReviewPage() {
   }
 
   const durationMs = Math.max(1, (session.endedAt ?? session.startedAt) - session.startedAt);
-  const targetSegments: TimelineSegment[] = session.intervals.map((iv) => ({
-    voice: iv.voice,
-    startMs: Math.min(iv.startMs, durationMs),
-    endMs: Math.min(iv.endMs, durationMs),
-  }));
   const feltSegments = computeFeltSegments(session.presses, durationMs);
-  const scrubberPercent = Math.min(100, Math.max(0, (currentTimeMs / durationMs) * 100));
 
-  function handleSeek(fraction: number) {
-    if (!audioRef.current) return;
-    audioRef.current.currentTime = (fraction * durationMs) / 1000;
-  }
-
-  async function handleSaveJournal() {
-    if (!session) return;
-    const updated: PracticeSession = {
-      ...session,
-      journal: {
-        target: targetFeel.trim() || undefined,
-        inefficient: inefficientFeel.trim() || undefined,
-      },
-    };
-    await saveSession(updated);
-    setSession(updated);
-    setJournalSaved(true);
-  }
-
-  const timeToTarget = timeToFirstTarget(session.presses);
-  const timeToReturn = timeToReturnAfterInefficient(session.presses, session.intervals);
+  // Sessions recorded before the confidence slider have voice-button taps
+  // instead of ratings; they keep their original Felt bar.
+  const isLegacy = session.ratings === undefined;
+  const ratingSummaries = summarizeRatingsByInterval(session.ratings ?? [], session.intervals);
 
   return (
     <div className="page">
@@ -113,92 +67,32 @@ export default function ReviewPage() {
             </span>
           </div>
 
-          <TimelineBar
-            rowLabel="Target"
-            segments={targetSegments}
-            durationMs={durationMs}
-            scrubberPercent={audioUrl ? scrubberPercent : null}
-            onSeek={audioUrl ? handleSeek : undefined}
-          />
-          <TimelineBar
-            rowLabel="Felt"
-            segments={feltSegments}
-            durationMs={durationMs}
-            scrubberPercent={audioUrl ? scrubberPercent : null}
-            onSeek={audioUrl ? handleSeek : undefined}
-          />
-
-          {audioUrl ? (
-            <audio
-              ref={audioRef}
-              src={audioUrl}
-              controls
-              className="audio-player"
-              onTimeUpdate={(e) => setCurrentTimeMs(e.currentTarget.currentTime * 1000)}
-            />
+          {isLegacy ? (
+            <TimelineBar rowLabel="Felt" segments={feltSegments} durationMs={durationMs} />
           ) : (
-            <p className="subtitle">No audio was saved for this session.</p>
+            <div className="timeline-row">
+              <span className="timeline-row-label sentence-case">% Confident that you produced your intended voice</span>
+              <div className="rating-boxes">
+                {ratingSummaries.map((summary) => (
+                  <div key={summary.index} className={`rating-box voice-${summary.voice}`}>
+                    <span className="rating-box-value">{summary.rating === null ? '—' : `${summary.rating}%`}</span>
+                    <span className="rating-box-label">
+                      {summary.voice === 'target' ? session.targetLabel : session.inefficientLabel}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
           )}
-
-          <dl className="summary-list">
-            <dt>Time to reach {session.targetLabel}</dt>
-            <dd>{formatSecondsMetric(timeToTarget)}</dd>
-            <dt>Time to return to {session.targetLabel} after {session.inefficientLabel}</dt>
-            <dd>{formatSecondsMetric(timeToReturn)}</dd>
-          </dl>
         </div>
 
-        {session.voiceAnalysis ? (
-          <div className="score-card">
-            <div className="score-item">
-              <span className="score-value">{session.voiceAnalysis.bestCppsDb}</span>
-              <span className="score-label">Best Voice Score</span>
-              <span className="score-subnote">
-                Goal is {Math.round(session.voiceAnalysis.thresholdDb)}+. Bigger is better, not a percent.
-              </span>
-            </div>
-            <div className="score-item">
-              <span className="score-value">{session.voiceAnalysis.percentTimeClear}%</span>
-              <span className="score-label">Time in {session.targetLabel}</span>
-            </div>
-          </div>
-        ) : (
-          <p className="subtitle">Voice clarity score isn't available for this session.</p>
+        {todayCount >= DAILY_GOAL && (
+          <Link to="/daily">
+            <button type="button" className="start-another-button reward-button">
+              See your Daily Progress Review
+            </button>
+          </Link>
         )}
-
-        <dl className="summary-list">
-          <dt>Prompt</dt>
-          <dd>{session.prompt}</dd>
-          <dt>Button presses</dt>
-          <dd>{session.presses.length}</dd>
-        </dl>
-
-        <div className="journal-section">
-          <label htmlFor="targetFeel">How did {session.targetLabel} feel?</label>
-          <textarea
-            id="targetFeel"
-            rows={2}
-            value={targetFeel}
-            onChange={(e) => setTargetFeel(e.target.value)}
-            placeholder="Optional"
-          />
-          <label htmlFor="inefficientFeel">How did {session.inefficientLabel} feel?</label>
-          <textarea
-            id="inefficientFeel"
-            rows={2}
-            value={inefficientFeel}
-            onChange={(e) => setInefficientFeel(e.target.value)}
-            placeholder="Optional"
-          />
-          {journalSaved && (
-            <p className="form-success" role="status">
-              Saved.
-            </p>
-          )}
-          <button type="button" onClick={handleSaveJournal}>
-            Save notes
-          </button>
-        </div>
 
         <Link to="/practice">
           <button type="button" className="start-another-button">

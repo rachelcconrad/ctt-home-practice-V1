@@ -3,7 +3,9 @@ import { useSettings } from './hooks/useSettings';
 import { SessionActivityProvider, useSessionActivity } from './context/SessionActivityContext';
 import SetupPage from './routes/SetupPage';
 import PracticePage from './routes/PracticePage';
+import AwarenessPage from './routes/AwarenessPage';
 import ReviewPage from './routes/ReviewPage';
+import DailyPage from './routes/DailyPage';
 
 function Layout() {
   const { active } = useSessionActivity();
@@ -52,7 +54,9 @@ export default function App() {
             <Route path="/" element={<RootRedirect />} />
             <Route path="/setup" element={<SetupPage />} />
             <Route path="/practice" element={<PracticePage />} />
+            <Route path="/awareness/:sessionId" element={<AwarenessPage />} />
             <Route path="/review/:sessionId" element={<ReviewPage />} />
+            <Route path="/daily" element={<DailyPage />} />
           </Route>
         </Routes>
       </HashRouter>

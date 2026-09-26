@@ -18,30 +18,27 @@ export interface SessionInterval {
   endMs: number;
 }
 
-// One button press (the "Felt" timeline). Logged as-is, every tap, even if
-// it repeats the current voice — this is the raw ground truth of what the
-// patient reported feeling, not a derived state machine.
+// LEGACY (sessions recorded before the confidence slider): one voice-button
+// tap. Kept so older sessions still open; new sessions use `Rating`.
 export interface Press {
   tMs: number;
   voice: VoiceRole;
 }
 
-// Short, skippable post-session reflections, one per voice mode.
-export interface JournalEntry {
-  target?: string;
-  inefficient?: string;
+// One confidence-slider reading, in ms since session start. `voice` is the
+// voice the patient was being asked about at that moment. `value` is 0-100
+// (0 = thumbs down, 100 = thumbs up); the number is never shown to patients,
+// it exists for clinician review and export.
+export interface Rating {
+  tMs: number;
+  voice: VoiceRole;
+  value: number;
 }
 
-// Post-hoc acoustic analysis (Smoothed Cepstral Peak Prominence) computed
-// from the session recording. Kept separate from `presses` deliberately —
-// this is an independent acoustic signal, not a comparison against the
-// patient's own self-reported timeline. dB is the standard CPPS unit in the
-// literature; the patient-facing UI omits the unit, but it's kept here for
-// clinician export accuracy.
-export interface VoiceAnalysis {
-  bestCppsDb: number;
-  percentTimeClear: number;
-  thresholdDb: number;
+// Post-practice yes/no questions; null = left unanswered.
+export interface DifferenceAnswers {
+  heardDifference: boolean | null;
+  feltDifference: boolean | null;
 }
 
 export interface PracticeSession {
@@ -54,8 +51,9 @@ export interface PracticeSession {
   inefficientLabel: string;
   prompt: string;
   intervals: SessionInterval[];
+  // Legacy voice-button taps; empty for sessions recorded with the slider.
   presses: Press[];
-  journal: JournalEntry;
-  // Absent if the recording was too short/quiet to analyze, or analysis failed.
-  voiceAnalysis?: VoiceAnalysis;
+  // Undefined = recorded before the confidence slider existed (legacy).
+  ratings?: Rating[];
+  discrimination?: DifferenceAnswers;
 }

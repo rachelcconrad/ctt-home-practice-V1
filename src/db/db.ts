@@ -84,6 +84,18 @@ export async function listSessions(): Promise<PracticeSession[]> {
   return all.reverse();
 }
 
+// Sessions started since local midnight, so the daily count resets each night.
+export async function listSessionsToday(): Promise<PracticeSession[]> {
+  const startOfToday = new Date();
+  startOfToday.setHours(0, 0, 0, 0);
+  const sessions = await listSessions();
+  return sessions.filter((s) => s.startedAt >= startOfToday.getTime());
+}
+
+export async function countSessionsToday(): Promise<number> {
+  return (await listSessionsToday()).length;
+}
+
 export async function saveAudio(sessionId: string, blob: Blob): Promise<void> {
   const db = await getDB();
   await db.put('audio', blob, sessionId);

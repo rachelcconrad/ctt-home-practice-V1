@@ -1,7 +1,23 @@
 import JSZip from 'jszip';
 import { getAudio, getSettings, listSessions } from '../db/db';
-import { timeToFirstTarget, timeToReturnAfterInefficient } from '../review/metrics';
+import { summarizeRatingsByInterval, timeToFirstTarget, timeToReturnAfterInefficient } from '../review/metrics';
 import { toCsvRow } from './csv';
+
+const INTERVAL_COLUMN_COUNT = 3;
+
+// Confidence-slider columns, one group per practice interval (one rating per
+// interval). Ratings are 0-100: 0 = thumbs down, 100 = thumbs up.
+const INTERVAL_COLUMNS = Array.from({ length: INTERVAL_COLUMN_COUNT }, (_, i) => [
+  `interval${i + 1}_voice`,
+  `interval${i + 1}_time_to_rating_s`,
+  `interval${i + 1}_rating_0_100`,
+]).flat();
+
+function yesNo(value: boolean | null | undefined): string {
+  if (value === true) return 'yes';
+  if (value === false) return 'no';
+  return '';
+}
 
 const CSV_HEADER = [
   'session_id',
@@ -14,10 +30,9 @@ const CSV_HEADER = [
   'button_presses',
   'time_to_target_s',
   'time_to_return_after_inefficient_s',
-  'best_voice_score_cpps_db',
-  'time_in_clear_voice_pct',
-  'journal_target',
-  'journal_inefficient',
+  ...INTERVAL_COLUMNS,
+  'heard_difference',
+  'felt_difference',
 ];
 
 function audioExtension(mimeType: string): string {
@@ -53,6 +68,19 @@ export async function buildExportZip(): Promise<Blob> {
     const timeToTargetMs = timeToFirstTarget(session.presses);
     const timeToReturnMs = timeToReturnAfterInefficient(session.presses, session.intervals);
 
+    // Rating cells are blank for legacy sessions (recorded before the slider) and for
+    // intervals with no response.
+    const summaries = summarizeRatingsByInterval(session.ratings ?? [], session.intervals);
+    const intervalCells: (string | number)[] = [];
+    for (let i = 0; i < INTERVAL_COLUMN_COUNT; i++) {
+      const s = summaries[i];
+      intervalCells.push(
+        s ? s.voice : '',
+        s?.latencyMs == null ? '' : (s.latencyMs / 1000).toFixed(2),
+        s?.rating ?? '',
+      );
+    }
+
     csvRows.push(
       toCsvRow([
         session.id,
@@ -65,10 +93,9 @@ export async function buildExportZip(): Promise<Blob> {
         session.presses.length,
         timeToTargetMs === null ? '' : (timeToTargetMs / 1000).toFixed(1),
         timeToReturnMs === null ? '' : (timeToReturnMs / 1000).toFixed(1),
-        session.voiceAnalysis ? session.voiceAnalysis.bestCppsDb : '',
-        session.voiceAnalysis ? session.voiceAnalysis.percentTimeClear : '',
-        session.journal.target ?? '',
-        session.journal.inefficient ?? '',
+        ...intervalCells,
+        yesNo(session.discrimination?.heardDifference),
+        yesNo(session.discrimination?.feltDifference),
       ]),
     );
   }

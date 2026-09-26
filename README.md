@@ -7,8 +7,10 @@ This is both a clinical tool and a research data-collection instrument. All data
 ## What it does
 
 - **Clinician setup** — enter the patient's two personalized voice labels once.
-- **Practice session** — a 2.5-minute structured session (1 min target / 30s inefficient / 1 min target) with a live timer, a conversational prompt, two always-on-screen voice buttons the patient taps to self-report which voice they're producing, and full-session audio recording.
-- **Session review** — synced "Target" and "Felt" timelines with an audio scrubber, the two key timing metrics (time to reach target voice, time to return after the inefficient interval), a post-hoc acoustic voice-clarity score (Cepstral Peak Prominence Smoothed, reimplemented from Praat's own algorithm), and skippable journal prompts.
+- **Practice session** — a 2.5-minute structured session (1 min target / 30s inefficient / 1 min target) with a progress bar, a conversational prompt, one confidence slider per practice period (thumbs-down to thumbs-up, recorded 0-100), and full-session audio recording.
+- **Sound and Feel Changes** (the auditory-kinesthetic awareness step) — two required yes/no questions after each session.
+- **Session review** — a color key for the patient's two voice labels, the patient's self-rated confidence (%) for each practice period. Timing data (how long each rating took) is captured for the clinician export only. The session audio is recorded and saved on the device but is not played back to the patient.
+- **Daily Progress Review** — a reward page unlocked after the 7th session of the day: overlapping painterly circles (sized by percentage) for average confidence in the target and negative-practice voices, and how often the patient felt and heard a difference.
 - **Clinician export** — downloads a single zip with full session data (JSON), a spreadsheet-ready CSV summary, and the audio recordings, for review during appointments.
 
 ## Running it locally
@@ -24,7 +26,7 @@ Then open the URL it prints (typically `http://localhost:5173`) in your browser.
 
 ## Tech stack
 
-React + TypeScript + Vite, with all data stored locally in the browser via IndexedDB (no backend). See `src/` for the app itself; `src/analysis/cpps.ts` has notes on the voice-clarity analysis implementation.
+React + TypeScript + Vite, with all data stored locally in the browser via IndexedDB (no backend). See `src/` for the app itself.
 
 ## Status
 

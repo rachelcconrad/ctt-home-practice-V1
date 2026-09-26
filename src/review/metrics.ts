@@ -1,4 +1,28 @@
-import type { Press, SessionInterval } from '../db/types';
+import type { Press, Rating, SessionInterval, VoiceRole } from '../db/types';
+
+export interface IntervalRatingSummary {
+  index: number;
+  voice: VoiceRole;
+  // Ms from the interval's start until the patient locked in their rating.
+  latencyMs: number | null;
+  // 0-100 confidence from the slider.
+  rating: number | null;
+}
+
+// One summary per practice interval. Patients make a single rating per
+// interval; null = no rating was made in that interval.
+export function summarizeRatingsByInterval(ratings: Rating[], intervals: SessionInterval[]): IntervalRatingSummary[] {
+  const sorted = [...ratings].sort((a, b) => a.tMs - b.tMs);
+  return intervals.map((iv, index) => {
+    const made = sorted.find((r) => r.tMs >= iv.startMs && r.tMs < iv.endMs);
+    return {
+      index,
+      voice: iv.voice,
+      latencyMs: made ? made.tMs - iv.startMs : null,
+      rating: made ? made.value : null,
+    };
+  });
+}
 
 // Elapsed ms from session start to the patient's first "target" press,
 // wherever it occurs — null if they never registered feeling the target
@@ -19,7 +43,7 @@ export function timeToReturnAfterInefficient(presses: Press[], intervals: Sessio
   return returned ? returned.tMs - inefficient.endMs : null;
 }
 
-export function formatSecondsMetric(ms: number | null): string {
-  if (ms === null) return 'Not reached';
+export function formatSecondsMetric(ms: number | null, emptyLabel = 'Not reached'): string {
+  if (ms === null) return emptyLabel;
   return `${(ms / 1000).toFixed(1)}s`;
 }
